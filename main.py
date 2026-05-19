@@ -38,6 +38,7 @@ local_client = AsyncOpenAI(
 
 # Список бесплатных моделей
 free_openrouter_models = []
+current_model_index = 0
 
 async def update_openrouter_models(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обновляет список бесплатных моделей OpenRouter"""
@@ -98,6 +99,62 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.info(f"Команда /start от пользователя {update.effective_user.id}")
     await send_message_with_retry(context, update.effective_chat.id, "Привет! Я бот для выбора победителя. Тегните меня или ответьте на моё сообщение!")
 
+
+async def generate_battle_story(participants, final_winner, prize_text):
+    global current_model_index
+
+    participants_str = ", ".join([f"@{p}" for p in participants])
+    prize_str = f" за главный приз: {prize_text}" if prize_text else ""
+
+    system_prompt = "Ты креативный рассказчик, который описывает эпичные битвы."
+    user_prompt = (
+        f"Напиши короткий, но очень захватывающий рассказ об эпичной битве. "
+        f"Участники битвы: {participants_str}. "
+        f"Они сражаются{prize_str}. "
+        f"В конце расскажи, как победил @{final_winner}. "
+        f"Используй теги участников в тексте."
+    )
+
+    models_to_try = free_openrouter_models if free_openrouter_models else []
+    num_models = len(models_to_try)
+
+    if num_models > 0:
+        for _ in range(num_models):
+            model_to_use = models_to_try[current_model_index]
+            try:
+                logger.info(f"Trying openrouter model: {model_to_use}")
+                response = await openrouter_client.chat.completions.create(
+                    model=model_to_use,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    max_tokens=1000
+                )
+                story = response.choices[0].message.content.strip()
+                current_model_index = (current_model_index + 1) % num_models
+                return story
+            except Exception as e:
+                logger.warning(f"Error generating with {model_to_use}: {e}")
+                current_model_index = (current_model_index + 1) % num_models
+
+    # Fallback to local model
+    try:
+        logger.info("Falling back to local model")
+        local_user_prompt = user_prompt + " Рассказ должен быть очень коротким, но очень крутым и эпичным! Напиши не больше 3-4 предложений."
+        response = await local_client.chat.completions.create(
+            model="local-model", # Model name is usually ignored by local backends, but required by SDK
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": local_user_prompt}
+            ],
+            max_tokens=400
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.error(f"Error generating with local model: {e}")
+        return "⚔️ Битва была настолько эпичной, что летописцы не смогли описать её словами! Но победитель известен..."
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обрабатывает входящие сообщения"""
     if not update.message or not update.message.text:
@@ -149,16 +206,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     await asyncio.sleep(4)
 
+    # Запускаем генерацию рассказа в фоне
+    story_task = asyncio.create_task(generate_battle_story(participants, final_winner, prize_text))
+
     losers = [p for p in participants if p != final_winner]
     if losers:
         num_teases = random.randint(1, len(losers))
         tease_targets = random.sample(losers, num_teases)
         
+
         tease_phrases = [
-            "Может это @{name}... нет ❌",
-            "Хмм, @{name} был близок... но не в этот раз! 🧐",
-            "Почти победа для @{name}... но нет! 🙊",
-            "Смотрим на @{name}... мимо! 💨"
+            "Это мог быть @{name}... Но он пал в этой битве 💀",
+            "Скрестили мечи... и @{name} не выжил ⚔️",
+            "В пылу сражения @{name} получил смертельную рану 🩸",
+            "Мощный удар... и @{name} отправляется в Вальгаллу 🛡️"
         ]
 
         for name in tease_targets:
@@ -166,13 +227,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await send_message_with_retry(context, chat_id, phrase)
             await asyncio.sleep(random.uniform(1.0, 2.0))
 
+    # Ждем завершения генерации рассказа, если она еще идет
+    waiting_phrases = [
+        "Битва была славной...",
+        "Ожидаем летописца...",
+        "Пыль на поле боя рассеивается...",
+        "Собираем трофеи..."
+    ]
+
+    while not story_task.done():
+        phrase = random.choice(waiting_phrases)
+        await send_message_with_retry(context, chat_id, phrase)
+        await asyncio.sleep(random.uniform(2.0, 3.0))
+
+    battle_story = await story_task
+    safe_battle_story = escape_markdown(battle_story)
+
     safe_prize = escape_markdown(prize_text)
     stats_text = "📊 *Результаты 1000 бросков:*\n"
     for user, count in stats.most_common():
         percentage = (count / 1000) * 100
         stats_text += f"@{user}: {count} побед ({percentage:.1f}%)\n"
     
-    response_text = f"{stats_text}\n"
+    response_text = f"📖 *Хроники Битвы:*\n_{safe_battle_story}_\n\n"
+    response_text += f"{stats_text}\n"
     response_text += f"🏆 *Итог:* Поздравляю @{final_winner} с победой!\n"
     if prize_text:
         response_text += f"🎁 *Твой приз:* {safe_prize}"
