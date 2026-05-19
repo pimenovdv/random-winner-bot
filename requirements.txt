@@ -1,0 +1,2 @@
+python-telegram-bot==20.7
+dynaconf==3.2.5
