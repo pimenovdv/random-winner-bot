@@ -129,7 +129,7 @@ async def generate_battle_story(participants, final_winner, prize_text):
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    max_tokens=500
+                    max_tokens=1000
                 )
                 story = response.choices[0].message.content.strip()
                 current_model_index = (current_model_index + 1) % num_models
@@ -141,14 +141,14 @@ async def generate_battle_story(participants, final_winner, prize_text):
     # Fallback to local model
     try:
         logger.info("Falling back to local model")
-        local_user_prompt = user_prompt + " Рассказ должен быть очень крутым и эпичным!"
+        local_user_prompt = user_prompt + " Рассказ должен быть очень коротким, но очень крутым и эпичным! Напиши не больше 3-4 предложений."
         response = await local_client.chat.completions.create(
             model="local-model", # Model name is usually ignored by local backends, but required by SDK
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": local_user_prompt}
             ],
-            max_tokens=500
+            max_tokens=400
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -206,6 +206,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     await asyncio.sleep(4)
 
+    # Запускаем генерацию рассказа в фоне
+    story_task = asyncio.create_task(generate_battle_story(participants, final_winner, prize_text))
+
     losers = [p for p in participants if p != final_winner]
     if losers:
         num_teases = random.randint(1, len(losers))
@@ -224,7 +227,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await send_message_with_retry(context, chat_id, phrase)
             await asyncio.sleep(random.uniform(1.0, 2.0))
 
-    battle_story = await generate_battle_story(participants, final_winner, prize_text)
+    # Ждем завершения генерации рассказа, если она еще идет
+    waiting_phrases = [
+        "Битва была славной...",
+        "Ожидаем летописца...",
+        "Пыль на поле боя рассеивается...",
+        "Собираем трофеи..."
+    ]
+
+    while not story_task.done():
+        phrase = random.choice(waiting_phrases)
+        await send_message_with_retry(context, chat_id, phrase)
+        await asyncio.sleep(random.uniform(2.0, 3.0))
+
+    battle_story = await story_task
     safe_battle_story = escape_markdown(battle_story)
 
     safe_prize = escape_markdown(prize_text)
