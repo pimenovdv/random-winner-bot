@@ -227,7 +227,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         for name in tease_targets:
             phrase = random.choice(tease_phrases).format(name=name)
             await send_message_with_retry(context, chat_id, phrase)
-            await asyncio.sleep(random.uniform(1.0, 2.0))
+            await asyncio.sleep(random.uniform(2.0, 4.0))
 
     # Ждем завершения генерации рассказа, если она еще идет
     waiting_phrases = [
@@ -240,10 +240,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     while not story_task.done():
         phrase = random.choice(waiting_phrases)
         await send_message_with_retry(context, chat_id, phrase)
-        await asyncio.sleep(random.uniform(1.0, 3.0))
+        await asyncio.sleep(random.uniform(3.0, 6.0))
 
     battle_story = await story_task
-    safe_battle_story = escape_markdown(battle_story)
+    # safe_battle_story = escape_markdown(battle_story)
 
     safe_prize = escape_markdown(prize_text)
     stats_text = "📊 *Результаты 10000 бросков:*\n"
@@ -251,7 +251,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         percentage = (count / 10000) * 100
         stats_text += f"@{user}: {count} побед ({percentage:.1f}%)\n"
     
-    response_text = f"📖 *Хроники Битвы:*\n_{safe_battle_story}_\n\n"
+    response_text = f"📖 *Хроники Битвы:*\n{safe_battle_story}\n\n"
     response_text += f"{stats_text}\n"
     response_text += f"🏆 *Итог:* Поздравляю @{final_winner} с победой!\n"
     if prize_text:
