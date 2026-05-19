@@ -2,11 +2,13 @@ import logging
 import random
 import re
 import asyncio
+import httpx
 from collections import Counter
 from telegram import Update, MessageEntity
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.error import BadRequest, TelegramError, RetryAfter
 from config import settings
+from openai import AsyncOpenAI
 
 # Настройка расширенного логирования
 logging.basicConfig(
@@ -22,6 +24,40 @@ logger = logging.getLogger(__name__)
 # Настройки из dynaconf
 TOKEN = settings.TOKEN
 BOT_USERNAME = settings.BOT_USERNAME
+
+# OpenAI клиенты
+openrouter_client = AsyncOpenAI(
+    api_key=settings.get("OPENROUTER_API_KEY", "dummy"),
+    base_url="https://openrouter.ai/api/v1"
+)
+
+local_client = AsyncOpenAI(
+    api_key="dummy",
+    base_url="http://0.0.0.0:8080/v1"
+)
+
+# Список бесплатных моделей
+free_openrouter_models = []
+
+async def update_openrouter_models(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обновляет список бесплатных моделей OpenRouter"""
+    global free_openrouter_models
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get("https://openrouter.ai/api/v1/models")
+            response.raise_for_status()
+            data = response.json()
+
+            models = []
+            for model in data.get("data", []):
+                pricing = model.get("pricing", {})
+                if pricing and pricing.get("prompt") == "0" and pricing.get("completion") == "0":
+                    models.append(model.get("id"))
+
+            free_openrouter_models = models
+            logger.info(f"Обновлено {len(free_openrouter_models)} бесплатных моделей OpenRouter")
+    except Exception as e:
+        logger.error(f"Ошибка при обновлении моделей OpenRouter: {e}")
 
 async def send_message_with_retry(context, chat_id, text, reply_to_message_id=None, parse_mode=None, retries=3):
     """Отправка сообщения с механизмом повторных попыток"""
@@ -152,6 +188,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 def main() -> None:
     """Запуск бота"""
     application = Application.builder().token(TOKEN).build()
+
+    # Регистрация планировщика для обновления моделей
+    application.job_queue.run_repeating(update_openrouter_models, interval=3600, first=0)
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     logger.info("Бот запущен с использованием dynaconf.")
