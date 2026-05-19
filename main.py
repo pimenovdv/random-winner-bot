@@ -195,7 +195,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if last_mention_match:
             prize_text = message_text[last_mention_match[-1].end():].strip()
 
-    sim_results = [random.choice(participants) for _ in range(1000)]
+    sim_results = [random.choice(participants) for _ in range(10000)]
     stats = Counter(sim_results)
     final_winner, winner_score = stats.most_common(1)[0]
 
@@ -203,12 +203,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await context.bot.send_dice(chat_id=chat_id)
     except Exception as e:
         logger.error(f"Error sending dice: {e}")
-    
-    await asyncio.sleep(4)
 
     # Запускаем генерацию рассказа в фоне
     story_task = asyncio.create_task(generate_battle_story(participants, final_winner, prize_text))
 
+    await send_message_with_retry(context, chat_id, "⚔️ Начал моделировать битву...")
+    
+    await asyncio.sleep(3)
+    
     losers = [p for p in participants if p != final_winner]
     if losers:
         num_teases = random.randint(1, len(losers))
@@ -238,15 +240,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     while not story_task.done():
         phrase = random.choice(waiting_phrases)
         await send_message_with_retry(context, chat_id, phrase)
-        await asyncio.sleep(random.uniform(2.0, 3.0))
+        await asyncio.sleep(random.uniform(1.0, 3.0))
 
     battle_story = await story_task
     safe_battle_story = escape_markdown(battle_story)
 
     safe_prize = escape_markdown(prize_text)
-    stats_text = "📊 *Результаты 1000 бросков:*\n"
+    stats_text = "📊 *Результаты 10000 бросков:*\n"
     for user, count in stats.most_common():
-        percentage = (count / 1000) * 100
+        percentage = (count / 10000) * 100
         stats_text += f"@{user}: {count} побед ({percentage:.1f}%)\n"
     
     response_text = f"📖 *Хроники Битвы:*\n_{safe_battle_story}_\n\n"
