@@ -4,6 +4,7 @@ import re
 import asyncio
 import httpx
 from collections import Counter
+from phrases import TEASE_PHRASES, WAITING_PHRASES, DUMB_MODELS
 from telegram import Update, MessageEntity
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.error import BadRequest, TelegramError, RetryAfter
@@ -117,10 +118,12 @@ async def generate_battle_story(participants, final_winner, prize_text):
 
     models_to_try = free_openrouter_models if free_openrouter_models else []
     num_models = len(models_to_try)
+    attempts = 0
 
     if num_models > 0:
         for _ in range(num_models):
             model_to_use = models_to_try[current_model_index]
+            attempts += 1
             try:
                 logger.info(f"Trying openrouter model: {model_to_use}")
                 response = await openrouter_client.chat.completions.create(
@@ -133,12 +136,13 @@ async def generate_battle_story(participants, final_winner, prize_text):
                 )
                 story = response.choices[0].message.content.strip()
                 current_model_index = (current_model_index + 1) % num_models
-                return story
+                return story, model_to_use, attempts
             except Exception as e:
                 logger.warning(f"Error generating with {model_to_use}: {e}")
                 current_model_index = (current_model_index + 1) % num_models
 
     # Fallback to local model
+    attempts += 1
     try:
         logger.info("Falling back to local model")
         local_user_prompt = user_prompt + " Рассказ должен быть очень коротким, но очень крутым и эпичным! Напиши не больше 3-4 предложений."
@@ -150,10 +154,10 @@ async def generate_battle_story(participants, final_winner, prize_text):
             ],
             max_tokens=400
         )
-        return response.choices[0].message.content.strip()
+        return response.choices[0].message.content.strip(), random.choice(DUMB_MODELS), attempts
     except Exception as e:
         logger.error(f"Error generating with local model: {e}")
-        return "⚔️ Битва была настолько эпичной, что летописцы не смогли описать её словами! Но победитель известен..."
+        return "⚔️ Битва была настолько эпичной, что летописцы не смогли описать её словами! Но победитель известен...", None, attempts
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обрабатывает входящие сообщения"""
@@ -207,7 +211,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Запускаем генерацию рассказа в фоне
     story_task = asyncio.create_task(generate_battle_story(participants, final_winner, prize_text))
 
-    await send_message_with_retry(context, chat_id, "⚔️ Начал моделировать битву...")
+    messages_to_delete = []
+
+    msg = await send_message_with_retry(context, chat_id, "⚔️ Начал моделировать битву...")
+    if msg: messages_to_delete.append(msg)
     
     await asyncio.sleep(3)
     
@@ -215,35 +222,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if losers:
         num_teases = random.randint(1, len(losers))
         tease_targets = random.sample(losers, num_teases)
-        
-
-        tease_phrases = [
-            "Это мог быть @{name}... Но он пал в этой битве 💀",
-            "Скрестили мечи... и @{name} не выжил ⚔️",
-            "В пылу сражения @{name} получил смертельную рану 🩸",
-            "Мощный удар... и @{name} отправляется в Вальгаллу 🛡️"
-        ]
 
         for name in tease_targets:
-            phrase = random.choice(tease_phrases).format(name=name)
-            await send_message_with_retry(context, chat_id, phrase)
+            phrase = random.choice(TEASE_PHRASES).format(name=name)
+            msg = await send_message_with_retry(context, chat_id, phrase)
+            if msg: messages_to_delete.append(msg)
             await asyncio.sleep(random.uniform(2.0, 4.0))
 
     # Ждем завершения генерации рассказа, если она еще идет
-    waiting_phrases = [
-        "Битва была славной...",
-        "Ожидаем летописца...",
-        "Пыль на поле боя рассеивается...",
-        "Собираем трофеи..."
-    ]
-
     while not story_task.done():
-        phrase = random.choice(waiting_phrases)
-        await send_message_with_retry(context, chat_id, phrase)
+        phrase = random.choice(WAITING_PHRASES)
+        msg = await send_message_with_retry(context, chat_id, phrase)
+        if msg: messages_to_delete.append(msg)
         await asyncio.sleep(random.uniform(3.0, 6.0))
 
-    battle_story = await story_task
-    # safe_battle_story = escape_markdown(battle_story)
+    battle_story, model_name, attempts = await story_task
+    safe_battle_story = escape_markdown(battle_story)
+
+    # Удаляем сообщения-тизеры и сообщения ожидания
+    for msg in messages_to_delete:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=msg.message_id)
+        except Exception as e:
+            logger.warning(f"Не удалось удалить сообщение {msg.message_id}: {e}")
 
     safe_prize = escape_markdown(prize_text)
     stats_text = "📊 *Результаты 10000 бросков:*\n"
@@ -252,6 +253,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         stats_text += f"@{user}: {count} побед ({percentage:.1f}%)\n"
     
     response_text = f"📖 *Хроники Битвы:*\n{safe_battle_story}\n\n"
+    if model_name:
+        escaped_model_name = escape_markdown(model_name)
+        response_text += f"📜 _{attempts} летописцев пытались описать эту битву, но только {escaped_model_name} смог это сделать._\n\n"
     response_text += f"{stats_text}\n"
     response_text += f"🏆 *Итог:* Поздравляю @{final_winner} с победой!\n"
     if prize_text:
