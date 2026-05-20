@@ -44,6 +44,7 @@ current_model_index = 0
 async def update_openrouter_models(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обновляет список бесплатных моделей OpenRouter"""
     global free_openrouter_models
+    logger.info("Старт обновления моделей openrouter")
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get("https://openrouter.ai/api/v1/models")
@@ -93,7 +94,7 @@ async def send_message_with_retry(context, chat_id, text, reply_to_message_id=No
 
 def escape_markdown(text):
     """Экранирование специальных символов для Markdown"""
-    return text.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
+    return text #.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`").replace("[", "\\[")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Отправляет сообщение при команде /start"""
@@ -103,8 +104,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def generate_battle_story(participants, final_winner, prize_text):
     global current_model_index
-
+    await update_openrouter_models()
+    
     participants_str = ", ".join([f"@{p}" for p in participants])
+    
     prize_str = f" за главный приз: {prize_text}" if prize_text else ""
 
     system_prompt = "Ты креативный рассказчик, который описывает эпичные битвы."
@@ -274,7 +277,7 @@ def main() -> None:
     application = Application.builder().token(TOKEN).build()
 
     # Регистрация планировщика для обновления моделей
-    application.job_queue.run_repeating(update_openrouter_models, interval=3600, first=0)
+    # application.job_queue.run_repeating(update_openrouter_models, interval=3600, first=0)
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
