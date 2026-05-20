@@ -41,7 +41,7 @@ local_client = AsyncOpenAI(
 free_openrouter_models = []
 current_model_index = 0
 
-async def update_openrouter_models(context: ContextTypes.DEFAULT_TYPE) -> None:
+async def update_openrouter_models() -> None:
     """Обновляет список бесплатных моделей OpenRouter"""
     global free_openrouter_models
     logger.info("Старт обновления моделей openrouter")
