@@ -206,38 +206,48 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     stats = Counter(sim_results)
     final_winner, winner_score = stats.most_common(1)[0]
 
+    # Запускаем генерацию рассказа в фоне
+    story_task = asyncio.create_task(generate_battle_story(participants, final_winner, prize_text))
+
+    await asyncio.sleep(1.)
+    
     try:
         await context.bot.send_dice(chat_id=chat_id)
     except Exception as e:
         logger.error(f"Error sending dice: {e}")
 
-    # Запускаем генерацию рассказа в фоне
-    story_task = asyncio.create_task(generate_battle_story(participants, final_winner, prize_text))
-
     messages_to_delete = []
 
+    await asyncio.sleep(3.)
+    
     msg = await send_message_with_retry(context, chat_id, "⚔️ Начал моделировать битву...")
     if msg: messages_to_delete.append(msg)
     
-    await asyncio.sleep(3)
+    await asyncio.sleep(3.)
     
     losers = [p for p in participants if p != final_winner]
     if losers:
-        num_teases = random.randint(1, len(losers))
+        num_teases = len(losers) # random.randint(1, len(losers))
         tease_targets = random.sample(losers, num_teases)
 
         for name in tease_targets:
             phrase = random.choice(TEASE_PHRASES).format(name=name)
             msg = await send_message_with_retry(context, chat_id, phrase)
             if msg: messages_to_delete.append(msg)
-            await asyncio.sleep(random.uniform(2.0, 4.0))
+            await asyncio.sleep(random.uniform(3.0, 6.0))
+            if story_task.done():
+                break
 
     # Ждем завершения генерации рассказа, если она еще идет
     while not story_task.done():
         phrase = random.choice(WAITING_PHRASES)
         msg = await send_message_with_retry(context, chat_id, phrase)
-        if msg: messages_to_delete.append(msg)
-        await asyncio.sleep(random.uniform(3.0, 6.0))
+        if msg:
+            messages_to_delete.append(msg)
+        for _ in range(random.uniform(10.0, 15.0)):
+            await asyncio.sleep(1.)
+            if story_task.done():
+                break
 
     battle_story, model_name, attempts = await story_task
     safe_battle_story = escape_markdown(battle_story)
