@@ -172,9 +172,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     is_tagged = f"@{BOT_USERNAME}" in message_text
     is_reply_to_bot = False
-    if update.message.reply_to_message and update.message.reply_to_message.from_user:
-        if update.message.reply_to_message.from_user.username == BOT_USERNAME:
-            is_reply_to_bot = True
+    # if update.message.reply_to_message and update.message.reply_to_message.from_user:
+    #     if update.message.reply_to_message.from_user.username == BOT_USERNAME:
+    #         is_reply_to_bot = True
 
     if not (is_tagged or is_reply_to_bot):
         return
@@ -244,7 +244,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         msg = await send_message_with_retry(context, chat_id, phrase)
         if msg:
             messages_to_delete.append(msg)
-        for _ in range(random.uniform(10.0, 15.0)):
+        for _ in range(int(random.uniform(10.0, 15.0))):
             await asyncio.sleep(1.)
             if story_task.done():
                 break
