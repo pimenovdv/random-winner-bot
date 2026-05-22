@@ -65,7 +65,7 @@ async def update_openrouter_models() -> None:
 
 async def send_message_with_retry(context, chat_id, text, reply_to_message_id=None, parse_mode=None, retries=3):
     """Отправка сообщения с механизмом повторных попыток"""
-    text = text.replace("_", "\\_")
+    text = text.replace("_", "\_")
     for i in range(retries):
         try:
             return await context.bot.send_message(
