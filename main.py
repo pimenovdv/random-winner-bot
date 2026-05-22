@@ -40,6 +40,7 @@ local_client = AsyncOpenAI(
 # Список бесплатных моделей
 free_openrouter_models = []
 current_model_index = 0
+VOTING_SESSIONS = {}
 
 async def update_openrouter_models() -> None:
     """Обновляет список бесплатных моделей OpenRouter"""
@@ -64,7 +65,7 @@ async def update_openrouter_models() -> None:
 
 async def send_message_with_retry(context, chat_id, text, reply_to_message_id=None, parse_mode=None, retries=3):
     """Отправка сообщения с механизмом повторных попыток"""
-    text = text.replace("_", "\_")
+    text = text.replace("_", "\\_")
     for i in range(retries):
         try:
             return await context.bot.send_message(
@@ -171,6 +172,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     message_text = update.message.text
     chat_id = update.message.chat_id
     
+    clean_text = re.sub(f"@{BOT_USERNAME}", "", message_text, flags=re.IGNORECASE).strip()
+
+    if chat_id in VOTING_SESSIONS:
+        clean_text_lower = clean_text.lower()
+        # Check if exactly matching an option
+        for option in VOTING_SESSIONS[chat_id]:
+            if clean_text_lower == option:
+                username = update.message.from_user.username
+                tag = f"@{username}" if username else update.message.from_user.first_name
+                if tag not in VOTING_SESSIONS[chat_id][option]:
+                    VOTING_SESSIONS[chat_id][option].append(tag)
+                return
+
+        # Check for winner declaration
+        if clean_text_lower.startswith("побед") or clean_text_lower.startswith("выигр"):
+            for option in VOTING_SESSIONS[chat_id]:
+                if option in clean_text_lower:
+                    winners = VOTING_SESSIONS[chat_id][option]
+                    if winners:
+                        winners_str = ", ".join(winners)
+                        msg = f"🏆 В голосовании за '{option}' побеждают: {winners_str}!"
+                    else:
+                        msg = f"Голосование завершено. За '{option}' никто не проголосовал."
+                    await send_message_with_retry(context, chat_id, msg)
+                    del VOTING_SESSIONS[chat_id]
+                    return
+
     is_tagged = f"@{BOT_USERNAME}" in message_text
     is_reply_to_bot = False
     # if update.message.reply_to_message and update.message.reply_to_message.from_user:
@@ -202,6 +230,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         last_mention_match = list(re.finditer(r"@\w+", message_text))
         if last_mention_match:
             prize_text = message_text[last_mention_match[-1].end():].strip()
+
+    voting_options = []
+    if message_text.strip().endswith("?"):
+        last_line = lines[-1].strip()
+        if last_line.endswith("?"):
+            last_line_no_q = last_line[:-1].strip()
+            options = re.split(r'\s+или\s+', last_line_no_q, flags=re.IGNORECASE)
+            if len(options) > 1:
+                voting_options = [opt.strip().lower() for opt in options if opt.strip()]
 
     sim_results = [random.choice(participants) for _ in range(10000)]
     stats = Counter(sim_results)
@@ -282,6 +319,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         update.message.message_id,
         parse_mode="Markdown"
     )
+
+    if voting_options:
+        VOTING_SESSIONS[chat_id] = {opt: [] for opt in voting_options}
+        options_text = "\n".join([f"- {opt}" for opt in voting_options])
+        msg_text = f"Голосование началось! Варианты:\n{options_text}\n\nПишите один из вариантов, чтобы проголосовать!"
+        await send_message_with_retry(context, chat_id, msg_text)
 
 def main() -> None:
     """Запуск бота"""
