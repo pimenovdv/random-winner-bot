@@ -126,7 +126,7 @@ async def generate_battle_story(participants, final_winner, prize_text):
     attempts = 0
 
     if num_models > 0:
-        for _ in range(num_models):
+        for _ in range(min(3, num_models)):
             model_to_use = models_to_try[current_model_index]
             attempts += 1
             try:
