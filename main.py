@@ -64,6 +64,7 @@ async def update_openrouter_models() -> None:
 
 async def send_message_with_retry(context, chat_id, text, reply_to_message_id=None, parse_mode=None, retries=3):
     """Отправка сообщения с механизмом повторных попыток"""
+    text = text.replace("_", "\_")
     for i in range(retries):
         try:
             return await context.bot.send_message(
@@ -268,7 +269,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     response_text = f"📖 *Хроники Битвы:*\n{safe_battle_story}\n\n"
     if model_name:
         escaped_model_name = escape_markdown(model_name)
-        response_text += f"📜 _{attempts} летописцев пытались описать эту битву, но только {escaped_model_name} смог это сделать._\n\n"
+        response_text += f"📜 {attempts} летописцев пытались описать эту битву, но только {escaped_model_name} смог это сделать.\n\n"
     response_text += f"{stats_text}\n"
     response_text += f"🏆 *Итог:* Поздравляю @{final_winner} с победой!\n"
     if prize_text:
@@ -284,7 +285,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 def main() -> None:
     """Запуск бота"""
-    application = Application.builder().token(TOKEN).build()
+    application = (
+        Application.builder().token(TOKEN)
+        # .proxy("socks5://127.0.0.1:2080")
+        # .get_updates_proxy("socks5://127.0.0.1:2080")
+        .build()
+    )
 
     # Регистрация планировщика для обновления моделей
     # application.job_queue.run_repeating(update_openrouter_models, interval=3600, first=0)
